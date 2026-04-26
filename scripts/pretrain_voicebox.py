@@ -25,7 +25,7 @@ from pathlib import Path
 
 import torch
 import torch.nn.functional as F
-from transformers import AutoTokenizer
+from transformers import AutoConfig, AutoTokenizer
 
 from voicebox.config import Config
 from voicebox.voicebox import Voicebox
@@ -90,12 +90,12 @@ def main() -> None:
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token = tokenizer.eos_token
-    # Use the model.config.vocab_size convention (rounded up) — matches what
-    # extract_vectors.py and train.py do, so the pretrained voicebox plugs
-    # into the JIT pipeline without an embedding-shape mismatch.
-    base_vocab = tokenizer.vocab_size
-    needed = max(base_vocab, tokenizer.pad_token_id + 1, tokenizer.eos_token_id + 1)
-    vocab_size = ((needed + 127) // 128) * 128
+    # Use the teacher model's config.vocab_size (the true embedding-table
+    # size, padded for hardware efficiency) so the pretrained voicebox plugs
+    # into the downstream JIT pipeline — extract_vectors.py and train.py
+    # both use this same value.
+    teacher_cfg = AutoConfig.from_pretrained(args.tokenizer)
+    vocab_size = teacher_cfg.vocab_size
 
     cfg = Config()
     cfg.voicebox.vocab_size = vocab_size
