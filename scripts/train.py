@@ -46,6 +46,8 @@ def main() -> None:
     p.add_argument("--d-model", type=int, default=128)
     p.add_argument("--n-heads", type=int, default=4)
     p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--init-from", type=Path, default=None,
+                   help="Path to a pretrained voicebox checkpoint to warm-start from.")
     args = p.parse_args()
 
     torch.manual_seed(args.seed)
@@ -77,6 +79,13 @@ def main() -> None:
     p_params = sum(p.numel() for p in state.projector.parameters())
     v_params = sum(p.numel() for p in state.voicebox.parameters())
     print(f"projector params: {p_params:,}    voicebox params: {v_params:,}")
+
+    if args.init_from is not None:
+        blob = torch.load(args.init_from, map_location=device, weights_only=False)
+        missing, unexpected = state.voicebox.load_state_dict(blob["voicebox"], strict=False)
+        if missing or unexpected:
+            print(f"warm-start: missing={len(missing)} unexpected={len(unexpected)}")
+        print(f"warm-started voicebox from {args.init_from}")
 
     full = VectorDataset(shard)
     n_eval = max(1, int(len(full) * args.eval_frac))

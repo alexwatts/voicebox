@@ -83,24 +83,39 @@ class Voicebox(nn.Module):
     def forward(
         self,
         tokens: torch.Tensor,
-        lora_pairs: list[tuple[torch.Tensor, torch.Tensor]],
+        lora_pairs: list[tuple[torch.Tensor, torch.Tensor]] | None = None,
         concept_bias: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """tokens: (B, T); lora_pairs: list of (A, B) per layer;
-        concept_bias: (B, D) added to every position's embedding (optional).
+        """tokens: (B, T); lora_pairs: list of (A, B) per layer (optional —
+        used in JIT mode); concept_bias: (B, D) added to every position's
+        embedding (optional). When both are None, the voicebox runs as a
+        plain causal LM — used for pretraining.
 
         Returns logits (B, T, vocab_size).
         """
         B, T = tokens.shape
         assert T <= self.cfg.max_seq_len
-        assert len(lora_pairs) == self.cfg.n_layers
+        if lora_pairs is None:
+            zero_delta = torch.zeros(
+                B, self.cfg.d_model, self.cfg.d_model,
+                device=tokens.device, dtype=self.tok_emb.weight.dtype,
+            )
+            lora_pairs_iter = [(None, None)] * self.cfg.n_layers
+        else:
+            assert len(lora_pairs) == self.cfg.n_layers
+            zero_delta = None
+            lora_pairs_iter = lora_pairs
 
         pos = torch.arange(T, device=tokens.device).unsqueeze(0)
         x = self.tok_emb(tokens) + self.pos_emb(pos)
         if concept_bias is not None:
             x = x + concept_bias.unsqueeze(1)
-        for blk, (a, b) in zip(self.blocks, lora_pairs):
-            dyn_delta = torch.bmm(a, b) / math.sqrt(self.cfg.lora_rank)
+        for blk, ab in zip(self.blocks, lora_pairs_iter):
+            a, b = ab
+            if a is None:
+                dyn_delta = zero_delta
+            else:
+                dyn_delta = torch.bmm(a, b) / math.sqrt(self.cfg.lora_rank)
             x = blk(x, dyn_delta)
         x = self.ln_f(x)
         return self.lm_head(x)
