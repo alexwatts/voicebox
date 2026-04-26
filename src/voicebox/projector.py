@@ -36,7 +36,11 @@ class HyperProjector(nn.Module):
         layers: list[nn.Module] = []
         in_dim = proj_cfg.teacher_hidden_dim
         for _ in range(proj_cfg.n_hidden_layers):
-            layers += [nn.Linear(in_dim, proj_cfg.hidden_dim), nn.GELU()]
+            layers += [
+                nn.Linear(in_dim, proj_cfg.hidden_dim),
+                nn.GELU(),
+                nn.Dropout(proj_cfg.dropout),
+            ]
             in_dim = proj_cfg.hidden_dim
         self.trunk = nn.Sequential(*layers)
 

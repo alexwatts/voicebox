@@ -33,6 +33,7 @@ class ProjectorConfig:
     teacher_hidden_dim: int = 3584  # Qwen2.5-7B
     hidden_dim: int = 1024
     n_hidden_layers: int = 2
+    dropout: float = 0.1
 
 
 @dataclass
