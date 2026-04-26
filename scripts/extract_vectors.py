@@ -36,16 +36,29 @@ from voicebox.macro import extract_concept_vectors, load_teacher
 def tokenize_targets(
     tokenizer, targets: list[str], max_target_len: int
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Right-pad target token IDs to a common length. Returns (ids, mask)."""
-    enc = tokenizer(
+    """Tokenize each target, append EOS, right-pad to max_target_len.
+    Returns (ids, mask). EOS is included in the mask so the voicebox is
+    trained to emit it at end-of-answer — that's the stop signal eval relies on.
+    """
+    eos_id = tokenizer.eos_token_id
+    pad_id = tokenizer.pad_token_id
+
+    raw = tokenizer(
         targets,
-        return_tensors="pt",
-        padding="max_length",
+        padding=False,
         truncation=True,
-        max_length=max_target_len,
-        add_special_tokens=False,  # targets are continuations, not standalone seqs
-    )
-    return enc["input_ids"].long(), enc["attention_mask"].bool()
+        max_length=max_target_len - 1,  # leave room for EOS
+        add_special_tokens=False,
+    )["input_ids"]
+
+    B = len(raw)
+    ids = torch.full((B, max_target_len), pad_id, dtype=torch.long)
+    mask = torch.zeros((B, max_target_len), dtype=torch.bool)
+    for i, toks in enumerate(raw):
+        seq = toks + [eos_id]
+        ids[i, : len(seq)] = torch.tensor(seq, dtype=torch.long)
+        mask[i, : len(seq)] = True
+    return ids, mask
 
 
 def main() -> None:
@@ -59,12 +72,21 @@ def main() -> None:
     p.add_argument("--max-length", type=int, default=256)
     p.add_argument("--max-target-len", type=int, default=16)
     p.add_argument("--load-in-4bit", action="store_true")
+    p.add_argument("--prompt-template", type=str, default="Q: {prompt}\nA:",
+                   help="Wrap each prompt before extraction. The trailing "
+                        "':' makes the last hidden state encode the answer's "
+                        "first-token distribution. Use '{prompt}' to disable wrapping.")
+    p.add_argument("--pool-last-k", type=int, default=4,
+                   help="Mean-pool the last K real-token hidden states. "
+                        "1 = original behavior (last token only).")
     args = p.parse_args()
 
     records = load_jsonl(args.prompts)
-    prompts = [r["prompt"] for r in records]
+    raw_prompts = [r["prompt"] for r in records]
+    prompts = [args.prompt_template.format(prompt=p) for p in raw_prompts]
     targets = [r.get("target", "") for r in records]
     print(f"Loaded {len(prompts)} prompts from {args.prompts}")
+    print(f"prompt_template={args.prompt_template!r}  pool_last_k={args.pool_last_k}")
 
     cfg = TeacherConfig(
         model_id=args.model,
@@ -85,6 +107,7 @@ def main() -> None:
             prompts[i : i + chunk],
             batch_size=args.batch_size,
             max_length=args.max_length,
+            pool_last_k=args.pool_last_k,
         )
         pieces.append(v)
     vectors = torch.cat(pieces, dim=0)
@@ -101,12 +124,14 @@ def main() -> None:
             "vectors": vectors,
             "target_ids": target_ids,
             "target_mask": target_mask,
-            "prompts": prompts,
+            "prompts": raw_prompts,
+            "prompt_template": args.prompt_template,
             "targets": targets,
             # NOTE: use model.config.vocab_size (true embedding-table rows),
             # not tokenizer.vocab_size — Qwen and others tack added special
             # tokens onto IDs beyond the base BPE vocab.
             "vocab_size": int(teacher.model.config.vocab_size),
+            "eos_token_id": int(teacher.tokenizer.eos_token_id),
             "pad_token_id": int(teacher.tokenizer.pad_token_id),
             "hidden_dim": teacher.hidden_dim,
             "model_id": args.model,

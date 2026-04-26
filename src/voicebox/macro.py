@@ -59,8 +59,14 @@ def extract_concept_vectors(
     prompts: list[str],
     batch_size: int = 8,
     max_length: int = 256,
+    pool_last_k: int = 1,
 ) -> torch.Tensor:
-    """Return tensor of shape (len(prompts), hidden_dim) on CPU in float32."""
+    """Return (len(prompts), hidden_dim) on CPU in float32.
+
+    Pooling: when pool_last_k=1 we take the last non-pad token (original
+    behavior). For pool_last_k>1 we mean-pool over the last K real positions —
+    smooths the "instruct preamble" peakiness and gives the projector a
+    less position-specific signal."""
     out: list[torch.Tensor] = []
     for i in range(0, len(prompts), batch_size):
         batch = prompts[i : i + batch_size]
@@ -73,10 +79,19 @@ def extract_concept_vectors(
         ).to(teacher.device)
 
         hs = teacher.model(**enc, output_hidden_states=False).last_hidden_state
-        # Pick the last non-pad token per sequence.
         last_idx = enc.attention_mask.sum(dim=1) - 1  # (B,)
-        gather_idx = last_idx.view(-1, 1, 1).expand(-1, 1, hs.size(-1))
-        last_tok = hs.gather(1, gather_idx).squeeze(1)  # (B, H)
-        out.append(last_tok.detach().to("cpu", dtype=torch.float32))
+
+        if pool_last_k <= 1:
+            gather_idx = last_idx.view(-1, 1, 1).expand(-1, 1, hs.size(-1))
+            pooled = hs.gather(1, gather_idx).squeeze(1)  # (B, H)
+        else:
+            T = hs.size(1)
+            positions = torch.arange(T, device=hs.device).unsqueeze(0)  # (1, T)
+            last_idx_b = last_idx.unsqueeze(1)  # (B, 1)
+            in_window = (positions <= last_idx_b) & (positions > last_idx_b - pool_last_k)
+            mask = in_window.float().unsqueeze(-1)  # (B, T, 1)
+            pooled = (hs * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1)
+
+        out.append(pooled.detach().to("cpu", dtype=torch.float32))
 
     return torch.cat(out, dim=0)

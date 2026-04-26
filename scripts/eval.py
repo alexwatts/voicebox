@@ -40,25 +40,31 @@ def generate_greedy(
     pad_id: int,
     max_new_tokens: int,
     device: torch.device,
+    eos_id: int | None = None,
 ) -> torch.Tensor:
-    """Greedy autoregressive decode. Returns (B, max_new_tokens)."""
+    """Greedy autoregressive decode. Returns (B, max_new_tokens). Once a
+    sequence emits eos_id, subsequent positions are filled with pad_id so
+    decoded text ends cleanly."""
     B = concept.size(0)
     pairs, bias = projector(concept)
     out_tokens = torch.full(
         (B, max_new_tokens), pad_id, dtype=torch.long, device=device
     )
     cur_input = torch.full((B, 1), pad_id, dtype=torch.long, device=device)
+    finished = torch.zeros(B, dtype=torch.bool, device=device)
     for t in range(max_new_tokens):
-        # Voicebox's internal pos_emb expects positions starting at 0; we
-        # rebuild the running sequence each step so positions stay aligned
-        # with what training saw.
         if t == 0:
             seq = cur_input
         else:
             seq = torch.cat([cur_input, out_tokens[:, :t]], dim=1)
         logits = voicebox(seq, pairs, concept_bias=bias)  # (B, T, V)
         next_tok = logits[:, -1].argmax(dim=-1)  # (B,)
+        if eos_id is not None:
+            next_tok = torch.where(finished, torch.tensor(pad_id, device=device), next_tok)
+            finished = finished | (next_tok == eos_id)
         out_tokens[:, t] = next_tok
+        if eos_id is not None and bool(finished.all()):
+            break
     return out_tokens
 
 
@@ -111,7 +117,16 @@ def main() -> None:
 
     tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
 
-    n_first = n_exact = n_contains = 0
+    def trim_at_period(text: str) -> str:
+        """Heuristic stop: end the generation at the first period after the
+        leading whitespace. Compensates for the missing EOS in training
+        targets — the voicebox doesn't know to stop, but the right answer
+        often appears before the first period."""
+        s = text.lstrip()
+        idx = s.find(".")
+        return s[: idx + 1] if idx != -1 else s
+
+    n_first = n_exact = n_exact_trim = n_contains = 0
     samples: list[tuple[str, str, str]] = []  # (prompt, target, gen)
 
     for i in range(0, n, args.batch_size):
@@ -120,7 +135,10 @@ def main() -> None:
         target_ids = shard.target_ids[idx].to(device)
         target_mask = shard.target_mask[idx].to(device)
 
-        gen = generate_greedy(projector, voicebox, concept, pad_id, args.max_new_tokens, device)
+        gen = generate_greedy(
+            projector, voicebox, concept, pad_id, args.max_new_tokens, device,
+            eos_id=shard.eos_token_id,
+        )
 
         # First-token accuracy.
         first_correct = (gen[:, 0] == target_ids[:, 0]) & target_mask[:, 0]
@@ -135,17 +153,21 @@ def main() -> None:
             target_text = shard.targets[row_i]
             norm_t = normalize_answer(target_text)
             norm_g = normalize_answer(gtext)
+            norm_g_trim = normalize_answer(trim_at_period(gtext))
             if norm_t == norm_g:
                 n_exact += 1
+            if norm_t == norm_g_trim:
+                n_exact_trim += 1
             if norm_t and norm_t in norm_g:
                 n_contains += 1
             if len(samples) < args.n_samples:
                 samples.append((shard.prompts[row_i], target_text, gtext))
 
     print()
-    print(f"first_token_acc: {n_first / n:.4f}  ({n_first}/{n})")
-    print(f"exact_match:     {n_exact / n:.4f}  ({n_exact}/{n})")
-    print(f"contains:        {n_contains / n:.4f}  ({n_contains}/{n})")
+    print(f"first_token_acc:        {n_first / n:.4f}  ({n_first}/{n})")
+    print(f"exact_match:            {n_exact / n:.4f}  ({n_exact}/{n})")
+    print(f"exact_match_trimmed:    {n_exact_trim / n:.4f}  ({n_exact_trim}/{n})")
+    print(f"contains:               {n_contains / n:.4f}  ({n_contains}/{n})")
     print()
     print("Samples (prompt | target | generated):")
     for prompt, target, gen in samples:

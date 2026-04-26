@@ -35,9 +35,12 @@ def post_filter(
     records: list[dict],
     min_target_chars: int,
     max_target_chars: int,
+    max_target_tokens: int = 0,
+    tokenizer=None,
 ) -> list[dict]:
     seen: set[tuple[str, str]] = set()
     kept: list[dict] = []
+    n_drop_token_len = 0
     for r in records:
         prompt = r["prompt"].strip()
         target = r["target"]
@@ -46,11 +49,19 @@ def post_filter(
             continue
         if len(norm_target) > max_target_chars:
             continue
+        if max_target_tokens > 0 and tokenizer is not None:
+            n_tok = len(tokenizer(target, add_special_tokens=False)["input_ids"])
+            if n_tok > max_target_tokens:
+                n_drop_token_len += 1
+                continue
         key = (prompt, norm_target)
         if key in seen:
             continue
         seen.add(key)
         kept.append(r)
+    if n_drop_token_len:
+        print(f"  dropped {n_drop_token_len} records exceeding "
+              f"{max_target_tokens}-token target cap")
     return kept
 
 
@@ -73,15 +84,31 @@ def main() -> None:
                    help="Optional cap on test size. 0 = keep all surviving.")
     p.add_argument("--min-target-chars", type=int, default=4)
     p.add_argument("--max-target-chars", type=int, default=60)
+    p.add_argument("--max-target-tokens", type=int, default=0,
+                   help="Drop records whose target exceeds this many tokens. "
+                        "0 = disabled. Requires --tokenizer.")
+    p.add_argument("--tokenizer", type=str, default="Qwen/Qwen2.5-7B-Instruct")
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
+
+    tokenizer = None
+    if args.max_target_tokens > 0:
+        from transformers import AutoTokenizer
+        tokenizer = AutoTokenizer.from_pretrained(args.tokenizer, use_fast=True)
+        print(f"Loaded tokenizer for token-count filter: {args.tokenizer}")
 
     train_in = load_jsonl(args.in_train)
     test_in = load_jsonl(args.in_test)
     print(f"Loaded train={len(train_in)} test={len(test_in)}")
 
-    train_filtered = post_filter(train_in, args.min_target_chars, args.max_target_chars)
-    test_filtered = post_filter(test_in, args.min_target_chars, args.max_target_chars)
+    train_filtered = post_filter(
+        train_in, args.min_target_chars, args.max_target_chars,
+        args.max_target_tokens, tokenizer,
+    )
+    test_filtered = post_filter(
+        test_in, args.min_target_chars, args.max_target_chars,
+        args.max_target_tokens, tokenizer,
+    )
     print(f"After filter: train={len(train_filtered)} test={len(test_filtered)}")
 
     train_out = subsample(train_filtered, args.n, args.seed)

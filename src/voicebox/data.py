@@ -147,6 +147,7 @@ class VectorShard:
     targets: list[str]
     vocab_size: int
     pad_token_id: int
+    eos_token_id: int | None       # None for shards built before EOS support
     teacher_hidden_dim: int
     model_id: str
 
@@ -161,6 +162,7 @@ class VectorShard:
             targets=blob["targets"],
             vocab_size=blob["vocab_size"],
             pad_token_id=blob["pad_token_id"],
+            eos_token_id=blob.get("eos_token_id"),
             teacher_hidden_dim=blob["hidden_dim"],
             model_id=blob["model_id"],
         )
