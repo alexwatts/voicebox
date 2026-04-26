@@ -41,7 +41,7 @@ def main() -> None:
     p.add_argument("--log-every", type=int, default=50)
     p.add_argument("--eval-every", type=int, default=500)
     p.add_argument("--eval-frac", type=float, default=0.10)
-    p.add_argument("--lora-rank", type=int, default=4)
+    p.add_argument("--lora-rank", type=int, default=16)
     p.add_argument("--n-layers", type=int, default=2)
     p.add_argument("--d-model", type=int, default=128)
     p.add_argument("--n-heads", type=int, default=4)

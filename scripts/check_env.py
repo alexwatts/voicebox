@@ -40,8 +40,8 @@ def main() -> None:
     concept = torch.randn(B, cfg.projector.teacher_hidden_dim, device=device)
     tokens = torch.randint(0, cfg.voicebox.vocab_size, (B, T), device=device)
 
-    pairs = projector(concept)
-    logits = voicebox(tokens, pairs)
+    pairs, bias = projector(concept)
+    logits = voicebox(tokens, pairs, concept_bias=bias)
     print(f"logits shape: {tuple(logits.shape)}")
     assert logits.shape == (B, T, cfg.voicebox.vocab_size)
     print("OK")

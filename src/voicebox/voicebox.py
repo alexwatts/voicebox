@@ -84,8 +84,10 @@ class Voicebox(nn.Module):
         self,
         tokens: torch.Tensor,
         lora_pairs: list[tuple[torch.Tensor, torch.Tensor]],
+        concept_bias: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """tokens: (B, T); lora_pairs: list of (A, B) per layer.
+        """tokens: (B, T); lora_pairs: list of (A, B) per layer;
+        concept_bias: (B, D) added to every position's embedding (optional).
 
         Returns logits (B, T, vocab_size).
         """
@@ -95,6 +97,8 @@ class Voicebox(nn.Module):
 
         pos = torch.arange(T, device=tokens.device).unsqueeze(0)
         x = self.tok_emb(tokens) + self.pos_emb(pos)
+        if concept_bias is not None:
+            x = x + concept_bias.unsqueeze(1)
         for blk, (a, b) in zip(self.blocks, lora_pairs):
             dyn_delta = torch.bmm(a, b) / math.sqrt(self.cfg.lora_rank)
             x = blk(x, dyn_delta)

@@ -76,9 +76,9 @@ def compute_loss(
     target_mask: torch.Tensor,     # (B, T) bool
     pad_id: int,
 ) -> tuple[torch.Tensor, dict]:
-    pairs = projector(concept)
+    pairs, bias = projector(concept)
     inputs = shift_for_teacher_forcing(target_ids, pad_id)
-    logits = voicebox(inputs, pairs)  # (B, T, V)
+    logits = voicebox(inputs, pairs, concept_bias=bias)  # (B, T, V)
 
     flat_logits = logits.reshape(-1, logits.size(-1))
     flat_labels = target_ids.reshape(-1)
