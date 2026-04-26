@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voicebox"
+version = "0.0.1"
+description = "JIT-compiled micro-decoder: a frozen teacher LLM hyper-projects LoRA weights into a tiny voicebox transformer"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.4",
+    "transformers>=4.45",
+    "accelerate>=0.34",
+    "safetensors>=0.4",
+    "datasets>=3.0",
+    "tqdm>=4.66",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["ruff", "pytest"]
+tracking = ["wandb"]
+quant = ["bitsandbytes>=0.43"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

@@ -1,0 +1,11 @@
+# Colab Pro already has torch + CUDA preinstalled. We just need extras.
+# Install with: pip install -e . (which uses pyproject.toml) — this file is a
+# fallback for plain `pip install -r` if you don't want editable mode.
+transformers>=4.45
+accelerate>=0.34
+safetensors>=0.4
+datasets>=3.0
+tqdm>=4.66
+pyyaml>=6.0
+bitsandbytes>=0.43
+wandb

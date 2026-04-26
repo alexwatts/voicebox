@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.python-version
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Project artifacts (large files — don't commit)
+data/vectors/
+data/raw/*.jsonl
+checkpoints/
+runs/
+wandb/
+*.pt
+*.safetensors
+*.bin
+
+# HF / torch caches if anyone points them here
+.cache/
+hf_cache/
+
+# Notebook outputs
+*.ipynb_checkpoints/
