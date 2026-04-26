@@ -21,6 +21,8 @@ class VoiceboxConfig:
     d_model: int = 128
     d_ff: int = 512
     max_seq_len: int = 64
+    # Placeholder default — override from the extracted shard at train time
+    # (shard["vocab_size"]) so the voicebox shares the teacher's tokenizer.
     vocab_size: int = 32000
     lora_rank: int = 4
     dropout: float = 0.0
