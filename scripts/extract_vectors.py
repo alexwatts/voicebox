@@ -103,7 +103,10 @@ def main() -> None:
             "target_mask": target_mask,
             "prompts": prompts,
             "targets": targets,
-            "vocab_size": int(teacher.tokenizer.vocab_size),
+            # NOTE: use model.config.vocab_size (true embedding-table rows),
+            # not tokenizer.vocab_size — Qwen and others tack added special
+            # tokens onto IDs beyond the base BPE vocab.
+            "vocab_size": int(teacher.model.config.vocab_size),
             "pad_token_id": int(teacher.tokenizer.pad_token_id),
             "hidden_dim": teacher.hidden_dim,
             "model_id": args.model,

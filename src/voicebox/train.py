@@ -120,7 +120,13 @@ def make_state_from_shard(
 ) -> TrainState:
     """Override config dims from the shard, then build modules + optimizer."""
     cfg.projector.teacher_hidden_dim = shard.teacher_hidden_dim
-    cfg.voicebox.vocab_size = shard.vocab_size
+    # Qwen's tokenizer.vocab_size excludes added special tokens, so token IDs
+    # in target_ids can exceed it (e.g., pad/eos at 151643+). Take the true
+    # max we'll see, rounded up to a multiple of 128 to match Qwen's actual
+    # embedding-table size.
+    max_id = int(shard.target_ids.max().item())
+    needed = max(shard.vocab_size, max_id + 1, shard.pad_token_id + 1)
+    cfg.voicebox.vocab_size = ((needed + 127) // 128) * 128
 
     projector = HyperProjector(cfg.projector, cfg.voicebox).to(device)
     voicebox = Voicebox(cfg.voicebox).to(device)
