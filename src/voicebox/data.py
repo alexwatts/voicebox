@@ -1,17 +1,23 @@
-"""Synthetic 'fact retrieval' dataset (OBJECTIVE.MD Phase 3).
+"""Datasets for the JIT-compilation experiment.
 
-The point of these prompts: the voicebox is too small to memorize facts on its
-own, so the only way it can produce the correct target is if the teacher's
-concept vector successfully injects the fact via the JIT-compiled LoRA delta.
+We support two paradigms (see plan):
 
-Each generator yields (prompt, target) string pairs. We produce a few template
-families to test that the projector can route different fact types into the
-voicebox.
+* **Paradigm B (active)** — facts the teacher actually knows, curated by
+  filtering a public QA corpus (TriviaQA) through the teacher itself. Built by
+  ``scripts/curate_facts.py``; loaded here via ``load_jsonl`` /
+  ``train_test_split``.
+
+* **Paradigm A (kept as a smoke-test fallback)** — synthetic fictional facts
+  via ``generate()`` and the templates below. Useful for verifying the
+  training plumbing without running the full curation pass. The label-noisy
+  pet template has been removed so the remaining templates are bijective.
 """
 from __future__ import annotations
 
 import json
 import random
+import re
+import string
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
@@ -59,17 +65,10 @@ def _favorite_color(rng: random.Random) -> tuple[str, str]:
     return f"{name}'s favorite color is", f" {color}."
 
 
-def _pet_species(rng: random.Random) -> tuple[str, str]:
-    name = rng.choice(NAMES)
-    animal = rng.choice(ANIMALS)
-    return f"{name} keeps a pet {animal} named", f" {rng.choice(NAMES)}."
-
-
 TEMPLATES: list[Callable[[random.Random], tuple[str, str]]] = [
     _planet_capital,
     _account_balance,
     _favorite_color,
-    _pet_species,
 ]
 
 
@@ -102,6 +101,38 @@ def write_jsonl(records: Iterable[dict], path: Path) -> None:
     with path.open("w") as f:
         for r in records:
             f.write(json.dumps(r) + "\n")
+
+
+def load_jsonl(path: str | Path) -> list[dict]:
+    with Path(path).open() as f:
+        return [json.loads(line) for line in f if line.strip()]
+
+
+def train_test_split(
+    records: list[dict], test_frac: float, seed: int = 0
+) -> tuple[list[dict], list[dict]]:
+    """Random shuffle + split. Returns (train, test)."""
+    rng = random.Random(seed)
+    shuffled = records[:]
+    rng.shuffle(shuffled)
+    cut = int(len(shuffled) * (1.0 - test_frac))
+    return shuffled[:cut], shuffled[cut:]
+
+
+_PUNCT_RE = re.compile(f"[{re.escape(string.punctuation)}]")
+_WS_RE = re.compile(r"\s+")
+
+
+def normalize_answer(text: str) -> str:
+    """Lower, drop punctuation, collapse whitespace.
+
+    Used on both sides of the teacher-knowledge filter and any later
+    string-match evaluation, so the comparison is consistent.
+    """
+    text = text.lower()
+    text = _PUNCT_RE.sub(" ", text)
+    text = _WS_RE.sub(" ", text).strip()
+    return text
 
 
 # --- PyTorch Dataset ----------------------------------------------------------

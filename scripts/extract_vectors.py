@@ -23,19 +23,14 @@ Example:
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 
 import torch
 from tqdm import tqdm
 
 from voicebox.config import TeacherConfig
+from voicebox.data import load_jsonl
 from voicebox.macro import extract_concept_vectors, load_teacher
-
-
-def read_jsonl(path: Path) -> list[dict]:
-    with path.open() as f:
-        return [json.loads(line) for line in f if line.strip()]
 
 
 def tokenize_targets(
@@ -66,7 +61,7 @@ def main() -> None:
     p.add_argument("--load-in-4bit", action="store_true")
     args = p.parse_args()
 
-    records = read_jsonl(args.prompts)
+    records = load_jsonl(args.prompts)
     prompts = [r["prompt"] for r in records]
     targets = [r.get("target", "") for r in records]
     print(f"Loaded {len(prompts)} prompts from {args.prompts}")
